@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ParchmentCard,
   MagicalMicButton,
   AudioWaveform,
   OrnateButton,
@@ -16,13 +15,8 @@ import {
   AudioPlayer,
 } from "@/lib/voice/speechUtils";
 
-interface Message {
-  id: string;
-  content: string;
-  role: string;
-  emotionalState: string | null;
-  createdAt: string;
-}
+/** Hardcoded placeholder when character has no custom avatar (no image API required). */
+const CHARACTER_PLACEHOLDER = "/character-placeholder.png";
 
 interface Character {
   id: string;
@@ -38,7 +32,6 @@ export default function SpeakPage() {
   const params = useParams();
   const router = useRouter();
   const [character, setCharacter] = useState<Character | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -49,8 +42,9 @@ export default function SpeakPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [inputMode, setInputMode] = useState<"voice" | "text">("voice");
   const [micError, setMicError] = useState<string | null>(null);
+  /** Last thing the character said — shown as subtitle while speaking (no chat log) */
+  const [lastLine, setLastLine] = useState<string | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition>>(null);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
 
@@ -68,10 +62,7 @@ export default function SpeakPage() {
         );
         if (convRes.ok) {
           const convData = await convRes.json();
-          if (convData) {
-            setConversationId(convData.id);
-            setMessages(convData.messages || []);
-          }
+          if (convData) setConversationId(convData.id);
         }
       } else {
         router.push("/library");
@@ -93,11 +84,6 @@ export default function SpeakPage() {
     };
   }, [fetchCharacter]);
 
-  // Auto-scroll to latest message
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   // Initialize audio player
   useEffect(() => {
     audioPlayerRef.current = new AudioPlayer();
@@ -112,16 +98,6 @@ export default function SpeakPage() {
 
     setSending(true);
     setTranscript("");
-
-    // Add user message to UI
-    const userMsg: Message = {
-      id: `temp-${Date.now()}`,
-      content: content.trim(),
-      role: "user",
-      emotionalState: null,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
 
     try {
       const res = await fetch("/api/chat", {
@@ -138,18 +114,8 @@ export default function SpeakPage() {
         const data = await res.json();
         setConversationId(data.conversationId);
         setCurrentEmotion(data.emotion || "neutral");
+        setLastLine(data.message?.content ?? null);
 
-        // Add assistant message
-        const assistantMsg: Message = {
-          id: data.message.id,
-          content: data.message.content,
-          role: "assistant",
-          emotionalState: data.emotion,
-          createdAt: data.message.createdAt,
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-
-        // Play audio if available
         if (data.audio) {
           try {
             const audioData = Uint8Array.from(atob(data.audio), (c) =>
@@ -295,6 +261,7 @@ export default function SpeakPage() {
   ];
   const colorIndex =
     character.name.charCodeAt(0) % characterColors.length;
+  const avatarSrc = character.illustratedAvatar || CHARACTER_PLACEHOLDER;
 
   return (
     <div
@@ -326,12 +293,12 @@ export default function SpeakPage() {
           </Link>
 
           <div className="flex items-center gap-3">
-            <div
-              className={`w-8 h-8 rounded-full bg-gradient-to-br ${characterColors[colorIndex]} flex items-center justify-center`}
-            >
-              <span className="font-cinzel font-bold text-xs text-parchment-100">
-                {character.name[0]}
-              </span>
+            <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-ink-800 ring-1 ring-parchment-500/20">
+              <img
+                src={avatarSrc}
+                alt={character.name}
+                className="w-full h-full object-cover"
+              />
             </div>
             <div>
               <h2 className="font-quattro font-bold text-sm text-parchment-200 leading-tight">
@@ -350,117 +317,104 @@ export default function SpeakPage() {
         </div>
       </nav>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-2xl mx-auto space-y-4">
-          {/* Welcome message */}
-          {messages.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-12"
-            >
-              <div
-                className={`w-24 h-24 rounded-full bg-gradient-to-br ${characterColors[colorIndex]} flex items-center justify-center mx-auto mb-4 shadow-xl`}
-              >
-                <span className="font-cinzel font-bold text-3xl text-parchment-100">
-                  {character.name[0]}
-                </span>
-              </div>
-              <h3 className="font-cinzel font-semibold text-xl text-parchment-200 mb-2">
-                {character.name}
-              </h3>
-              <p className="font-crimson text-parchment-500 italic mb-1">
-                from &ldquo;{character.book.title}&rdquo;
-              </p>
-              {character.description && (
-                <p className="font-crimson text-sm text-parchment-600 max-w-sm mx-auto mt-3">
-                  {character.description}
-                </p>
+      {/* 2D character view — no chat, just the model + speak animation */}
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-6 min-h-0">
+        <div className="flex flex-col items-center gap-6 w-full max-w-md">
+          {/* Large 2D character portrait with speak animation */}
+          <motion.div
+            className="relative flex flex-col items-center"
+            animate={{
+              scale: isPlaying ? [1, 1.04, 1.02, 1.04, 1] : 1,
+            }}
+            transition={{
+              duration: isPlaying ? 0.5 : 0.2,
+              repeat: isPlaying ? Infinity : 0,
+              repeatDelay: 0.1,
+            }}
+          >
+            {/* Glow ring when speaking */}
+            <AnimatePresence>
+              {isPlaying && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1.1 }}
+                  exit={{ opacity: 0, scale: 1 }}
+                  className="absolute inset-0 rounded-3xl bg-gold-400/20 blur-xl pointer-events-none"
+                />
               )}
-              <div className="w-32 h-px bg-gradient-to-r from-transparent via-gold-500/30 to-transparent mx-auto mt-6 mb-4" />
-              <p className="font-crimson text-sm text-parchment-500">
-                Speak or type to begin your conversation...
-              </p>
-            </motion.div>
-          )}
+            </AnimatePresence>
 
-          {/* Chat messages */}
-          <AnimatePresence initial={false}>
-            {messages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className={`flex ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                {msg.role === "assistant" && (
-                  <div
-                    className={`w-8 h-8 rounded-full bg-gradient-to-br ${characterColors[colorIndex]} flex items-center justify-center flex-shrink-0 mr-2 mt-1`}
-                  >
-                    <span className="font-cinzel font-bold text-xs text-parchment-100">
-                      {character.name[0]}
-                    </span>
-                  </div>
-                )}
-                <div
-                  className={`max-w-[75%] rounded-lg px-4 py-3 ${
-                    msg.role === "user"
-                      ? "bg-forest-700/80 text-parchment-100"
-                      : "bg-parchment-100/90 text-ink-800"
-                  }`}
-                >
-                  <p className="font-crimson text-sm leading-relaxed">
-                    {msg.content}
-                  </p>
-                  {msg.emotionalState && msg.role === "assistant" && (
-                    <span className="text-xs opacity-60 mt-1 inline-block">
-                      {emotionEmojis[msg.emotionalState] || ""}{" "}
-                      {msg.emotionalState}
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-
-          {/* Typing indicator */}
-          {sending && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex items-center gap-2"
+            <div
+              className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden shadow-2xl ring-4 transition-colors duration-500 ${
+                isPlaying
+                  ? "ring-gold-400/60"
+                  : currentEmotion === "happy"
+                  ? "ring-gold-400/30"
+                  : currentEmotion === "sad"
+                  ? "ring-deep-blue-400/30"
+                  : "ring-parchment-500/20"
+              }`}
             >
-              <div
-                className={`w-8 h-8 rounded-full bg-gradient-to-br ${characterColors[colorIndex]} flex items-center justify-center`}
-              >
-                <span className="font-cinzel font-bold text-xs text-parchment-100">
-                  {character.name[0]}
-                </span>
-              </div>
-              <ParchmentCard className="px-4 py-3">
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
+              <img
+                src={avatarSrc}
+                alt={character.name}
+                className="w-full h-full object-cover object-top"
+              />
+
+              {/* Speaking: animated mouth / sound bars overlay */}
+              {isPlaying && (
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-0.5">
+                  {[0, 1, 2, 3, 4].map((i) => (
                     <motion.div
                       key={i}
-                      className="w-2 h-2 bg-ink-400 rounded-full"
-                      animate={{ y: [0, -6, 0] }}
+                      className="w-1 bg-parchment-200/90 rounded-full"
+                      animate={{ height: [4, 14, 8, 16, 4] }}
                       transition={{
-                        duration: 0.6,
+                        duration: 0.4,
                         repeat: Infinity,
-                        delay: i * 0.15,
+                        delay: i * 0.08,
                       }}
+                      style={{ height: 6 }}
                     />
                   ))}
                 </div>
-              </ParchmentCard>
-            </motion.div>
-          )}
+              )}
+            </div>
+          </motion.div>
 
-          <div ref={messagesEndRef} />
+          {/* Character name + optional subtitle while speaking (no chat) */}
+          <div className="text-center">
+            <h2 className="font-cinzel font-semibold text-xl text-parchment-200">
+              {character.name}
+            </h2>
+            <p className="font-crimson text-sm text-parchment-500 italic mt-0.5">
+              from &ldquo;{character.book.title}&rdquo;
+            </p>
+            <AnimatePresence mode="wait">
+              {sending && !isPlaying && (
+                <motion.p
+                  key="thinking"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="font-crimson text-sm text-parchment-500 mt-2"
+                >
+                  Thinking…
+                </motion.p>
+              )}
+              {isPlaying && lastLine && (
+                <motion.p
+                  key="saying"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="font-crimson text-sm text-parchment-400 mt-2 max-w-sm mx-auto line-clamp-2"
+                >
+                  &ldquo;{lastLine}&rdquo;
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 

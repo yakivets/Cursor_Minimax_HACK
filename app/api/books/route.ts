@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { analyzeBook } from "@/lib/ai/openai";
+import { getAnonymousUserId } from "@/lib/anonymousUser";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const userId = await getAnonymousUserId();
 
   const books = await prisma.book.findMany({
-    where: { userId: session.user.id },
+    where: { userId },
     include: {
       characters: {
         select: { id: true, name: true, illustratedAvatar: true },
@@ -25,10 +21,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const userId = await getAnonymousUserId();
 
   try {
     const { title, author, description, coverImage } = await request.json();
@@ -47,7 +40,7 @@ export async function POST(request: Request) {
         author,
         description,
         coverImage,
-        userId: session.user.id,
+        userId,
       },
     });
 
@@ -97,3 +90,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

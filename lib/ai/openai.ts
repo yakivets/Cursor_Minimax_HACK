@@ -99,3 +99,38 @@ export async function detectEmotion(text: string): Promise<string> {
   const validEmotions = ["neutral", "happy", "sad", "angry", "thoughtful", "excited", "worried"];
   return validEmotions.includes(emotion) ? emotion : "neutral";
 }
+
+/**
+ * Generate a 2D character portrait using DALL·E 2 from name, description, personality and book.
+ * Returns a data URL (data:image/png;base64,...) or null if generation fails or API is not configured.
+ */
+export async function generateCharacterPortrait(
+  name: string,
+  bookTitle: string,
+  description?: string | null,
+  personality?: string | null
+): Promise<string | null> {
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-your")) {
+    return null;
+  }
+
+  const prompt = `A single character portrait, head and shoulders, literary illustration style, suitable for a book character. Character: ${name} from the book "${bookTitle}".${description ? ` ${description}` : ""}${personality ? ` Personality and vibe: ${personality.slice(0, 200)}` : ""}. Warm, readable, no text, portrait orientation, centered face.`;
+
+  try {
+    const response = await openai.images.generate({
+      model: "dall-e-2",
+      prompt,
+      size: "256x256",
+      n: 1,
+      response_format: "b64_json",
+    });
+
+    const b64 = response.data?.[0];
+    if (!b64 || !("b64_json" in b64) || !b64.b64_json) return null;
+
+    return `data:image/png;base64,${b64.b64_json}`;
+  } catch (err) {
+    console.error("Character portrait generation failed:", err);
+    return null;
+  }
+}

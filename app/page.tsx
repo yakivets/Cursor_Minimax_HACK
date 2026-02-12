@@ -2,33 +2,9 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { OrnateButton } from "@/components/ui/StoryBookUI";
 
 export default function HomePage() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (session) {
-      router.push("/library");
-    }
-  }, [session, router]);
-
-  if (status === "loading") {
-    return (
-      <div className="storybook-page flex items-center justify-center min-h-screen">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-          className="w-8 h-8 border-2 border-gold-500 border-t-transparent rounded-full"
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="storybook-page min-h-screen relative overflow-hidden">
       {/* Ambient particles */}
@@ -132,52 +108,47 @@ export default function HomePage() {
             Listen to them speak. Watch them react. Step into the story.
           </motion.p>
 
-          {/* CTA Buttons */}
+          {/* CTA Button */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.5, duration: 0.8 }}
             className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4"
           >
-            <Link href="/signup">
+            <Link href="/library">
               <OrnateButton variant="primary" size="lg">
-                Begin Your Journey
-              </OrnateButton>
-            </Link>
-            <Link href="/login">
-              <OrnateButton variant="ghost" size="lg">
                 Enter the Library
               </OrnateButton>
             </Link>
           </motion.div>
-        </motion.div>
 
-        {/* Bottom flourish */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 2, duration: 1 }}
-          className="absolute bottom-8 flex flex-col items-center gap-2"
-        >
+          {/* Scroll hint */}
           <motion.div
-            animate={{ y: [0, 8, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 2, duration: 0.8 }}
+            className="mt-10 flex flex-col items-center gap-2"
           >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="text-parchment-500/50"
+            <motion.div
+              animate={{ y: [0, 8, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
             >
-              <path d="M12 5v14M19 12l-7 7-7-7" />
-            </svg>
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                className="text-parchment-500/50"
+              >
+                <path d="M12 5v14M19 12l-7 7-7-7" />
+              </svg>
+            </motion.div>
+            <span className="font-crimson text-xs text-parchment-600 tracking-widest uppercase">
+              Scroll to explore
+            </span>
           </motion.div>
-          <span className="font-crimson text-xs text-parchment-600 tracking-widest uppercase">
-            Scroll to explore
-          </span>
         </motion.div>
       </div>
 

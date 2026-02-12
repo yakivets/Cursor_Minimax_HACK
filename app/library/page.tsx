@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -34,7 +33,6 @@ interface Book {
 }
 
 export default function LibraryPage() {
-  const { data: session } = useSession();
   const router = useRouter();
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,12 +110,12 @@ export default function LibraryPage() {
 
           <div className="flex items-center gap-4">
             <span className="font-crimson text-sm text-parchment-500 hidden sm:block">
-              Welcome, {session?.user?.name || "Reader"}
+              Welcome, Reader
             </span>
             <OrnateButton
               variant="ghost"
               size="sm"
-              onClick={() => signOut({ callbackUrl: "/" })}
+              onClick={() => router.push("/")}
             >
               Leave Library
             </OrnateButton>
@@ -302,8 +300,9 @@ export default function LibraryPage() {
                         Open Book
                       </OrnateButton>
                       <OrnateButton
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
+                        className="bg-gradient-to-b from-leather-500 to-leather-700 text-parchment-100 border-leather-800 hover:from-leather-400 hover:to-leather-600"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteBook(book.id);

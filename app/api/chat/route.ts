@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { chatWithCharacter, detectEmotion } from "@/lib/ai/openai";
 import { generateSpeech, pickVoiceForCharacter } from "@/lib/ai/elevenlabs";
+import { getAnonymousUserId } from "@/lib/anonymousUser";
 
 /**
  * Infer gender and archetype from character info to auto-select a voice.
@@ -32,12 +31,8 @@ function autoPickVoice(name: string, description: string | null, personality: st
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
+    const userId = await getAnonymousUserId();
     const { characterId, conversationId, message } = await request.json();
 
     if (!characterId || !message) {
@@ -64,7 +59,7 @@ export async function POST(request: Request) {
     let conversation;
     if (conversationId) {
       conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, userId: session.user.id },
+        where: { id: conversationId, userId },
         include: { messages: { orderBy: { createdAt: "asc" }, take: 20 } },
       });
     }
@@ -73,7 +68,7 @@ export async function POST(request: Request) {
       conversation = await prisma.conversation.create({
         data: {
           title: `Chat with ${character.name}`,
-          userId: session.user.id,
+          userId,
           characterId: character.id,
         },
         include: { messages: true },
