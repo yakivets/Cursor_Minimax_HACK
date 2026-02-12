@@ -37,8 +37,12 @@ export async function generateCharacterVideo(
   }
 
   try {
+    // Use video-01-live2d (faster, purpose-built for 2D animation) when we
+    // have a reference image; fall back to video-01 for text-only generation.
+    const model = referenceImageUrl ? "video-01-live2d" : "video-01";
+
     const body: Record<string, unknown> = {
-      model: "video-01",
+      model,
       prompt: prompt,
     };
 
@@ -75,10 +79,10 @@ async function pollVideoStatus(
   taskId: string,
   apiKey: string,
   groupId: string,
-  maxAttempts = 60
+  maxAttempts = 100
 ): Promise<string | null> {
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     try {
       const response = await fetch(

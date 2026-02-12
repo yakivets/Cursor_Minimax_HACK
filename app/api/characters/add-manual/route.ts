@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateCharacterProfile } from "@/lib/ai/openai";
-import { generateCharacterSpeakingVideo } from "@/lib/ai/minimax-video";
+import {
+  generateCharacterProfile,
+  generateCharacterPortrait,
+} from "@/lib/ai/openai";
 import { getAnonymousUserId } from "@/lib/anonymousUser";
 
 export async function POST(request: Request) {
   try {
     const userId = await getAnonymousUserId();
-    const { name, sourceTitle, sourceType } = await request.json();
+    const { name, sourceTitle, sourceType, description } = await request.json();
 
     if (!name || !sourceTitle) {
       return NextResponse.json(
@@ -16,8 +18,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Use OpenAI to generate a full character profile
-    const profile = await generateCharacterProfile(name, sourceTitle, sourceType || "cartoon");
+    // Use OpenAI to generate a full character profile, enriched with user-provided description
+    const profile = await generateCharacterProfile(name, sourceTitle, sourceType || "cartoon", description);
+
+    // Merge: prefer the user-provided description if given, otherwise use the AI-generated one
+    const finalDescription = description?.trim() || profile.description || null;
 
     // Save to database
     const character = await prisma.character.create({
@@ -26,20 +31,30 @@ export async function POST(request: Request) {
         sourceTitle,
         sourceType: sourceType || "cartoon",
         isStandalone: true,
-        description: profile.description || null,
+        description: finalDescription,
         personality: profile.personality || null,
         gender: profile.gender || "unknown",
-        videoStatus: "pending",
+        videoStatus: "none",
         // No bookId — standalone character
       },
     });
 
-    // Trigger Minimax video generation in background
-    if (profile.description) {
-      generateCharacterSpeakingVideo(character.id, profile.description).catch(
-        (err) => console.error(`Video gen failed for ${name}:`, err)
-      );
-    }
+    // Generate character portrait in background (fast, ~10s via DALL-E)
+    generateCharacterPortrait(
+      name,
+      sourceTitle,
+      finalDescription,
+      profile.personality
+    )
+      .then(async (dataUrl) => {
+        if (dataUrl) {
+          await prisma.character.update({
+            where: { id: character.id },
+            data: { illustratedAvatar: dataUrl },
+          });
+        }
+      })
+      .catch((err) => console.error(`Portrait gen failed for ${name}:`, err));
 
     return NextResponse.json({ success: true, character });
   } catch (error) {

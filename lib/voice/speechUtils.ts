@@ -69,6 +69,11 @@ export class AudioPlayer {
     }
 
     try {
+      // Resume AudioContext if suspended (browser autoplay policy)
+      if (this.audioContext.state === "suspended") {
+        await this.audioContext.resume();
+      }
+
       const audioBuffer = await this.audioContext.decodeAudioData(
         audioData.slice(0)
       );

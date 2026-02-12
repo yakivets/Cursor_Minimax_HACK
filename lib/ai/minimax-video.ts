@@ -11,10 +11,15 @@ function buildVideoPrompt(characterDescription: string): string {
 /**
  * Generate a Minimax speaking video for a character and persist the result.
  * This is meant to be called fire-and-forget (non-blocking).
+ *
+ * When `avatarUrl` is provided the faster `video-01-live2d` model is used
+ * with the avatar as the first frame, producing a result that matches the
+ * character's illustrated look.
  */
 export async function generateCharacterSpeakingVideo(
   characterId: string,
-  characterDescription: string
+  characterDescription: string,
+  avatarUrl?: string | null
 ): Promise<string | null> {
   try {
     // Mark as generating
@@ -24,7 +29,7 @@ export async function generateCharacterSpeakingVideo(
     });
 
     const prompt = buildVideoPrompt(characterDescription);
-    const videoUrl = await generateCharacterVideo(prompt);
+    const videoUrl = await generateCharacterVideo(prompt, avatarUrl || undefined);
 
     if (videoUrl) {
       await prisma.character.update({

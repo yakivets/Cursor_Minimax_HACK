@@ -21,7 +21,7 @@ export async function POST(
 
   const dataUrl = await generateCharacterPortrait(
     character.name,
-    character.book.title,
+    character.book?.title,
     character.description,
     character.personality
   );

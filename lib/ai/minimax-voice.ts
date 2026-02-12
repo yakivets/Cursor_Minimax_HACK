@@ -1,28 +1,25 @@
-const MINIMAX_BASE_URL = "https://api.minimaxi.chat/v1";
+/**
+ * Minimax Text-to-Speech (T2A v2) — English voices with gender + emotion support.
+ *
+ * Key optimisations over the previous version:
+ *  - Uses the **speech-2.8-turbo** model (latest & fastest)
+ *  - Hits the **low-latency US-West endpoint** (api-uw.minimax.io)
+ *  - English-language voices with language_boost
+ *  - Single consistent voice per gender (no jarring voice switches)
+ *  - Emotion conveyed via pitch / speed modulation
+ */
+
+// Low-latency endpoint for reduced time-to-first-audio
+const MINIMAX_TTS_URL = "https://api-uw.minimax.io/v1/t2a_v2";
 
 /**
- * Minimax voice IDs mapped by gender and emotion.
- * Reference: https://platform.minimaxi.com/document/T2A%20V2
+ * One warm, child-friendly English voice per gender.
+ * These stay consistent across emotions so the character always "sounds like
+ * themselves" — emotion is conveyed through pitch & speed instead.
  */
-const MINIMAX_VOICES = {
-  male: {
-    neutral: "male-qn-qingse",
-    happy: "male-qn-jingying",
-    sad: "male-qn-badao",
-    thoughtful: "male-qn-qingse",
-    angry: "male-qn-badao",
-    excited: "male-qn-jingying",
-    worried: "male-qn-qingse",
-  },
-  female: {
-    neutral: "female-shaonv",
-    happy: "female-yujie",
-    sad: "female-chengshu",
-    thoughtful: "female-chengshu",
-    angry: "female-yujie",
-    excited: "female-yujie",
-    worried: "female-chengshu",
-  },
+const VOICE_IDS = {
+  male: "English_CaptivatingStoryteller",
+  female: "English_PlayfulGirl",
 } as const;
 
 export type CharacterGender = "male" | "female";
@@ -35,16 +32,23 @@ export type EmotionalState =
   | "excited"
   | "worried";
 
-export function selectVoiceId(
-  gender: CharacterGender,
-  emotion: EmotionalState
-): string {
-  return MINIMAX_VOICES[gender]?.[emotion] ?? MINIMAX_VOICES[gender]?.neutral ?? "male-qn-qingse";
+/** Pitch + speed tweaks per emotion to make the voice expressive. */
+const EMOTION_MODULATION: Record<EmotionalState, { speed: number; pitch: number }> = {
+  neutral:    { speed: 1.0,  pitch: 0 },
+  happy:      { speed: 1.1,  pitch: 2 },
+  sad:        { speed: 0.9,  pitch: -2 },
+  thoughtful: { speed: 0.9,  pitch: 0 },
+  angry:      { speed: 1.05, pitch: -1 },
+  excited:    { speed: 1.15, pitch: 3 },
+  worried:    { speed: 0.95, pitch: -1 },
+};
+
+export function selectVoiceId(gender: CharacterGender): string {
+  return VOICE_IDS[gender] ?? VOICE_IDS.male;
 }
 
 /**
- * Infer gender from character textual description (same heuristic the old
- * ElevenLabs code used, extracted here so it can be reused).
+ * Infer gender from character textual description (heuristic).
  */
 export function inferGender(
   name: string,
@@ -74,45 +78,45 @@ export function inferGender(
 export async function generateMinimaxVoice(
   text: string,
   gender: CharacterGender,
-  emotion: EmotionalState
+  emotion: EmotionalState = "neutral"
 ): Promise<ArrayBuffer | null> {
   const apiKey = process.env.MINIMAX_API_KEY;
-  const groupId = process.env.MINIMAX_GROUP_ID;
 
   if (!apiKey || apiKey === "your-minimax-api-key") {
     console.log("Minimax API not configured, skipping voice generation");
     return null;
   }
 
-  const voiceId = selectVoiceId(gender, emotion);
+  const voiceId = selectVoiceId(gender);
+  const mod = EMOTION_MODULATION[emotion] ?? EMOTION_MODULATION.neutral;
 
   try {
-    const response = await fetch(
-      `${MINIMAX_BASE_URL}/t2a_v2?GroupId=${groupId}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
+    const response = await fetch(MINIMAX_TTS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "speech-2.8-turbo",
+        text,
+        stream: false,
+        language_boost: "English",
+        output_format: "hex",
+        voice_setting: {
+          voice_id: voiceId,
+          speed: mod.speed,
+          vol: 1.0,
+          pitch: mod.pitch,
         },
-        body: JSON.stringify({
-          model: "speech-01-turbo",
-          text,
-          stream: false,
-          voice_setting: {
-            voice_id: voiceId,
-            speed: 1.0,
-            vol: 1.0,
-            pitch: 0,
-          },
-          audio_setting: {
-            sample_rate: 32000,
-            bitrate: 128000,
-            format: "mp3",
-          },
-        }),
-      }
-    );
+        audio_setting: {
+          sample_rate: 32000,
+          bitrate: 128000,
+          format: "mp3",
+          channel: 1,
+        },
+      }),
+    });
 
     if (!response.ok) {
       console.error("Minimax TTS error:", response.status, await response.text());

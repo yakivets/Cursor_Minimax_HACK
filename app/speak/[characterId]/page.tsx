@@ -14,7 +14,6 @@ import {
   AudioPlayer,
 } from "@/lib/voice/speechUtils";
 
-const CHARACTER_PLACEHOLDER = "/character-placeholder.png";
 
 interface Character {
   id: string;
@@ -22,8 +21,6 @@ interface Character {
   description: string | null;
   personality: string | null;
   illustratedAvatar: string | null;
-  speakingVideoUrl: string | null;
-  videoStatus: string;
   voiceId: string | null;
   sourceTitle: string | null;
   book: { id: string; title: string; author: string } | null;
@@ -40,17 +37,16 @@ export default function SpeakPage() {
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [transcript, setTranscript] = useState("");
   const [currentEmotion, setCurrentEmotion] = useState("neutral");
-  const [lastLine, setLastLine] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   /** Whether the real-time conversation loop is active */
   const [conversationActive, setConversationActive] = useState(false);
 
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition>>(null);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
-  const characterVideoRef = useRef<HTMLVideoElement>(null);
   const startTimeRef = useRef<Date | null>(null);
   const conversationActiveRef = useRef(false);
   const conversationIdRef = useRef<string | null>(null);
+  const isSendingRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
@@ -96,41 +92,28 @@ export default function SpeakPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCharacter]);
 
-  // Poll for video status
+  // Poll for avatar if not yet generated
   useEffect(() => {
-    if (!character) return;
-    if (character.videoStatus !== "generating" && character.videoStatus !== "pending") return;
+    if (!character || character.illustratedAvatar) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/characters/${character.id}/video-status`);
+        const res = await fetch(`/api/characters/${character.id}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.speakingVideoUrl) {
-            setCharacter((prev) => prev ? { ...prev, speakingVideoUrl: data.speakingVideoUrl, videoStatus: data.videoStatus } : null);
+          if (data.illustratedAvatar) {
+            setCharacter((prev) => prev ? { ...prev, illustratedAvatar: data.illustratedAvatar } : null);
             clearInterval(interval);
           }
-          if (data.videoStatus === "failed") clearInterval(interval);
         }
       } catch { /* ignore */ }
-    }, 5000);
+    }, 3000);
     return () => clearInterval(interval);
-  }, [character?.id, character?.videoStatus]);
+  }, [character?.id, character?.illustratedAvatar]);
 
   // Initialize audio player
   useEffect(() => {
     audioPlayerRef.current = new AudioPlayer();
     return () => { audioPlayerRef.current?.destroy(); };
-  }, []);
-
-  // ─── Video play/pause ─────────────────────────────────────────
-  const onCharacterStartSpeaking = useCallback(() => {
-    const v = characterVideoRef.current;
-    if (v) { v.currentTime = 0; v.loop = true; v.play().catch(() => {}); }
-  }, []);
-
-  const onCharacterStopSpeaking = useCallback(() => {
-    const v = characterVideoRef.current;
-    if (v) { v.pause(); v.currentTime = 0; v.loop = false; }
   }, []);
 
   // ─── End conversation tracking ────────────────────────────────
@@ -150,6 +133,8 @@ export default function SpeakPage() {
   // ─── Core: send message + play response ───────────────────────
   const sendAndPlay = useCallback(async (content: string) => {
     if (!content.trim() || !character) return;
+    if (isSendingRef.current) return; // prevent duplicate sends
+    isSendingRef.current = true;
 
     setChatState("sending");
     setTranscript("");
@@ -170,37 +155,40 @@ export default function SpeakPage() {
         setConversationId(data.conversationId);
         conversationIdRef.current = data.conversationId;
         setCurrentEmotion(data.emotion || "neutral");
-        setLastLine(data.message?.content ?? null);
 
         if (data.audio) {
           try {
             const audioData = Uint8Array.from(atob(data.audio), (c) => c.charCodeAt(0)).buffer;
             setChatState("speaking");
-            onCharacterStartSpeaking();
             await audioPlayerRef.current?.play(audioData);
-            onCharacterStopSpeaking();
           } catch (e) {
             console.error("Audio playback error:", e);
-            onCharacterStopSpeaking();
           }
         }
       }
     } catch (error) {
       console.error("Chat error:", error);
-    }
-
-    // After character finishes speaking, auto-listen if conversation is still active
-    if (conversationActiveRef.current) {
-      startListening();
-    } else {
-      setChatState("idle");
+    } finally {
+      isSendingRef.current = false;
+      // After character finishes, always auto-listen if conversation is still active
+      if (conversationActiveRef.current) {
+        startListening();
+      } else {
+        setChatState("idle");
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [character, onCharacterStartSpeaking, onCharacterStopSpeaking]);
+  }, [character]);
 
   // ─── Start listening ──────────────────────────────────────────
   const startListening = useCallback(() => {
     setMicError(null);
+
+    // Stop any existing recognition before starting a new one
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch { /* already stopped */ }
+      recognitionRef.current = null;
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const W = window as any;
@@ -219,9 +207,9 @@ export default function SpeakPage() {
       continuous: false,
       interimResults: true,
       onResult: (text, isFinal) => {
-        setTranscript(text);
         pendingText.current = text;
         if (isFinal) {
+          pendingText.current = ""; // clear so onEnd doesn't re-send
           setChatState("sending");
           sendAndPlay(text);
         }
@@ -239,15 +227,14 @@ export default function SpeakPage() {
         } else if (benign.includes(error)) {
           // Silently restart if the conversation is still active
           if (conversationActiveRef.current) {
-            setTimeout(() => startListening(), 300);
+            setTimeout(() => startListening(), 200);
           } else {
             setChatState("idle");
           }
         } else {
           console.error("Speech recognition error:", error);
-          setMicError(`Voice error: ${error}`);
           if (conversationActiveRef.current) {
-            setTimeout(() => startListening(), 500);
+            setTimeout(() => startListening(), 300);
           } else {
             setChatState("idle");
           }
@@ -259,8 +246,8 @@ export default function SpeakPage() {
           pendingText.current = "";
           sendAndPlay(finalText);
         } else if (conversationActiveRef.current) {
-          // Speech ended without result — restart
-          setTimeout(() => startListening(), 300);
+          // Speech ended without result — restart quickly
+          setTimeout(() => startListening(), 150);
         } else {
           setChatState("idle");
         }
@@ -334,8 +321,7 @@ export default function SpeakPage() {
 
   if (!character) return null;
 
-  const hasVideo = character.videoStatus === "ready" && character.speakingVideoUrl;
-  const avatarSrc = character.illustratedAvatar || CHARACTER_PLACEHOLDER;
+  const avatarSrc = character.illustratedAvatar;
   const sourceLabel = character.book?.title || character.sourceTitle || "Unknown";
   const backHref = character.book ? `/book/${character.book.id}` : "/library";
 
@@ -364,8 +350,12 @@ export default function SpeakPage() {
           </Link>
 
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-ink-800 ring-1 ring-parchment-500/20">
-              <img src={avatarSrc} alt={character.name} className="w-full h-full object-cover" />
+            <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-ink-800 ring-1 ring-parchment-500/20 flex items-center justify-center">
+              {avatarSrc ? (
+                <img src={avatarSrc} alt={character.name} className="w-full h-full object-cover" />
+              ) : (
+                <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-gold-400 border-t-transparent rounded-full" />
+              )}
             </div>
             <div>
               <h2 className="font-quattro font-bold text-sm text-parchment-200 leading-tight">{character.name}</h2>
@@ -383,8 +373,8 @@ export default function SpeakPage() {
         <div className="flex flex-col items-center gap-6 w-full max-w-md">
           <motion.div
             className="relative flex flex-col items-center"
-            animate={{ scale: isSpeaking && !hasVideo ? [1, 1.04, 1.02, 1.04, 1] : 1 }}
-            transition={{ duration: isSpeaking ? 0.5 : 0.2, repeat: isSpeaking && !hasVideo ? Infinity : 0, repeatDelay: 0.1 }}
+            animate={{ scale: isSpeaking ? [1, 1.04, 1.02, 1.04, 1] : 1 }}
+            transition={{ duration: isSpeaking ? 0.5 : 0.2, repeat: isSpeaking ? Infinity : 0, repeatDelay: 0.1 }}
           >
             {/* Glow */}
             <AnimatePresence>
@@ -399,14 +389,16 @@ export default function SpeakPage() {
             <div className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden shadow-2xl ring-4 transition-colors duration-500 ${
               isSpeaking ? "ring-gold-400/60" : isListening ? "ring-forest-400/40" : currentEmotion === "happy" ? "ring-gold-400/30" : "ring-parchment-500/20"
             }`}>
-              {hasVideo ? (
-                <video ref={characterVideoRef} src={character.speakingVideoUrl!} muted playsInline loop={false} className="w-full h-full object-cover object-top" poster={avatarSrc} />
-              ) : (
+              {avatarSrc ? (
                 <img src={avatarSrc} alt={character.name} className="w-full h-full object-cover object-top" />
+              ) : (
+                <div className="w-full h-full bg-ink-800 flex items-center justify-center">
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-10 h-10 border-3 border-gold-400 border-t-transparent rounded-full" />
+                </div>
               )}
 
               {/* Speaking bars */}
-              {isSpeaking && !hasVideo && (
+              {isSpeaking && (
                 <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-0.5">
                   {[0, 1, 2, 3, 4].map((i) => (
                     <motion.div key={i} className="w-1 bg-parchment-200/90 rounded-full" animate={{ height: [4, 14, 8, 16, 4] }} transition={{ duration: 0.4, repeat: Infinity, delay: i * 0.08 }} style={{ height: 6 }} />
@@ -422,16 +414,6 @@ export default function SpeakPage() {
                   </motion.div>
                 </div>
               )}
-
-              {/* Video generating */}
-              {(character.videoStatus === "generating" || character.videoStatus === "pending") && (
-                <div className="absolute inset-0 bg-ink-900/40 flex items-center justify-center">
-                  <div className="text-center">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-6 h-6 border-2 border-gold-400 border-t-transparent rounded-full mx-auto" />
-                    <p className="font-crimson text-xs text-parchment-300 mt-2">Coming to life...</p>
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
 
@@ -440,18 +422,6 @@ export default function SpeakPage() {
             <h2 className="font-cinzel font-semibold text-xl text-parchment-200">{character.name}</h2>
             <p className="font-crimson text-sm text-parchment-500 italic mt-0.5">from &ldquo;{sourceLabel}&rdquo;</p>
 
-            <AnimatePresence mode="wait">
-              {isSpeaking && lastLine && (
-                <motion.p key="saying" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="font-crimson text-sm text-parchment-400 mt-2 max-w-sm mx-auto line-clamp-2">
-                  &ldquo;{lastLine}&rdquo;
-                </motion.p>
-              )}
-              {isListening && transcript && (
-                <motion.p key="hearing" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="font-crimson text-sm text-forest-400 mt-2 max-w-sm mx-auto">
-                  &ldquo;{transcript}&rdquo;
-                </motion.p>
-              )}
-            </AnimatePresence>
           </div>
         </div>
       </div>

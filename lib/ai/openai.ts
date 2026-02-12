@@ -68,8 +68,13 @@ export async function analyzeBook(title: string, author: string, description?: s
 export async function generateCharacterProfile(
   name: string,
   sourceTitle: string,
-  sourceType: string
+  sourceType: string,
+  userDescription?: string
 ) {
+  const descHint = userDescription?.trim()
+    ? `\nThe user described this character as: "${userDescription}". Use this to inform your profile but still fill in any missing details.`
+    : "";
+
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -77,7 +82,7 @@ export async function generateCharacterProfile(
         role: "user",
         content: `You are helping create a child-friendly character profile.
 
-Character: "${name}" from "${sourceTitle}" (${sourceType})
+Character: "${name}" from "${sourceTitle}" (${sourceType})${descHint}
 
 Generate a kid-friendly character profile with:
 - description: detailed physical appearance for video/image generation
@@ -111,8 +116,13 @@ export async function chatWithCharacter(
   personality: string,
   bookTitle: string,
   messages: { role: string; content: string }[],
-  userMessage: string
+  userMessage: string,
+  kidContext?: string | null
 ) {
+  const kidSection = kidContext
+    ? `\n\nABOUT THE CHILD YOU ARE TALKING TO:\n${kidContext}\nUse this info naturally — call them by name, reference their interests when relevant. Do NOT recite this info back; weave it in organically.`
+    : "";
+
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -132,7 +142,7 @@ CRITICAL RULES FOR THIS CONVERSATION:
 7. Always encourage the child — be their biggest cheerleader!
 8. Keep responses SHORT (2-4 sentences max) — kids have short attention spans.
 9. End responses with a question or invitation to keep the child engaged.
-10. Never break character or acknowledge being an AI.
+10. Never break character or acknowledge being an AI.${kidSection}
 
 You ARE this character. Stay in character always. Be magical and fun!`,
       },
@@ -147,6 +157,82 @@ You ARE this character. Stay in character always. Be magical and fun!`,
   });
 
   return response.choices[0]?.message?.content || "...";
+}
+
+/**
+ * Generate a storybook-style character portrait using DALL-E.
+ *
+ * If the prompt is rejected (often for copyright reasons), it retries with
+ * an anonymised description that keeps the visual appearance but drops the
+ * character / source name.
+ *
+ * Returns a data-URL (base64 PNG) or null on failure.
+ */
+export async function generateCharacterPortrait(
+  characterName: string,
+  sourceTitle: string | null | undefined,
+  description: string | null | undefined,
+  personality: string | null | undefined
+): Promise<string | null> {
+  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "sk-your-openai-api-key") {
+    console.log("OpenAI API key not configured, skipping portrait generation");
+    return null;
+  }
+
+  const appearance = description || personality || characterName;
+  const source = sourceTitle || "a children's story";
+
+  // --- Attempt 1: full prompt with character name ---
+  const primaryPrompt =
+    `A warm, friendly storybook illustration portrait of ${characterName} from "${source}". ` +
+    `Appearance: ${appearance}. ` +
+    `Upper body, facing the viewer, soft watercolour style with warm lighting, ` +
+    `child-friendly, colorful, white background. No text or words in the image.`;
+
+  try {
+    const url = await callDalle(primaryPrompt);
+    if (url) return url;
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Content-policy / safety rejection → retry with anonymised prompt
+    if (msg.includes("content_policy") || msg.includes("safety") || msg.includes("rejected")) {
+      console.log(`Portrait rejected for "${characterName}", retrying with anonymised prompt`);
+    } else {
+      console.error("Portrait generation error:", error);
+      return null;
+    }
+  }
+
+  // --- Attempt 2: anonymised prompt (avoids copyright names) ---
+  const fallbackPrompt =
+    `A warm, friendly storybook illustration portrait of a fictional character. ` +
+    `Appearance: ${appearance}. ` +
+    `Upper body, facing the viewer, soft watercolour style with warm lighting, ` +
+    `child-friendly, colorful, white background. No text or words in the image.`;
+
+  try {
+    const url = await callDalle(fallbackPrompt);
+    return url;
+  } catch (error) {
+    console.error("Fallback portrait generation error:", error);
+    return null;
+  }
+}
+
+/** Internal helper — calls DALL-E 3 and returns a data-URL. */
+async function callDalle(prompt: string): Promise<string | null> {
+  const response = await openai.images.generate({
+    model: "dall-e-3",
+    prompt,
+    n: 1,
+    size: "1024x1024",
+    quality: "standard",
+    response_format: "b64_json",
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) return null;
+  return `data:image/png;base64,${b64}`;
 }
 
 export async function detectEmotion(text: string): Promise<string> {

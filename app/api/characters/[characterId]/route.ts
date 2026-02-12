@@ -21,3 +21,17 @@ export async function GET(
   return NextResponse.json(character);
 }
 
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { characterId: string } }
+) {
+  try {
+    await prisma.character.delete({
+      where: { id: params.characterId },
+    });
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: "Character not found" }, { status: 404 });
+  }
+}
+

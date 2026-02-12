@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { analyzeSource } from "@/lib/ai/openai";
+import { analyzeSource, generateCharacterPortrait } from "@/lib/ai/openai";
 import { getAnonymousUserId } from "@/lib/anonymousUser";
-import { generateCharacterSpeakingVideo } from "@/lib/ai/minimax-video";
 
 export async function GET() {
   const userId = await getAnonymousUserId();
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
         data: { analysis: analysis.analysis },
       });
 
-      // Create characters from analysis and trigger video generation
+      // Create characters from analysis and generate portraits
       if (analysis.characters && analysis.characters.length > 0) {
         for (const charData of analysis.characters) {
           const character = await prisma.character.create({
@@ -75,20 +74,29 @@ export async function POST(request: Request) {
               gender: charData.gender || "unknown",
               sourceType: type,
               sourceTitle: title,
-              videoStatus: "pending",
+              videoStatus: "none",
               bookId: book.id,
             },
           });
 
-          // Fire-and-forget video generation
-          if (charData.description) {
-            generateCharacterSpeakingVideo(
-              character.id,
-              charData.description
-            ).catch((err) => {
-              console.error(`Video gen failed for ${charData.name}:`, err);
+          // Fire-and-forget portrait generation (fast, ~10s via DALL-E)
+          generateCharacterPortrait(
+            charData.name,
+            title,
+            charData.description,
+            charData.personality
+          )
+            .then(async (dataUrl) => {
+              if (dataUrl) {
+                await prisma.character.update({
+                  where: { id: character.id },
+                  data: { illustratedAvatar: dataUrl },
+                });
+              }
+            })
+            .catch((err) => {
+              console.error(`Portrait gen failed for ${charData.name}:`, err);
             });
-          }
         }
       }
     } catch (aiError) {

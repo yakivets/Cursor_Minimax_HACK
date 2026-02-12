@@ -5,13 +5,13 @@ import {
   generateMinimaxVoice,
   inferGender,
   type CharacterGender,
-  type EmotionalState,
 } from "@/lib/ai/minimax-voice";
-import { getAnonymousUserId } from "@/lib/anonymousUser";
+import { getAnonymousUser } from "@/lib/anonymousUser";
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAnonymousUserId();
+    const user = await getAnonymousUser();
+    const userId = user.id;
     const { characterId, conversationId, message } = await request.json();
 
     if (!characterId || !message) {
@@ -71,17 +71,30 @@ export async function POST(request: Request) {
       content: m.content,
     }));
 
+    // Build kid context from parent-provided profile
+    let kidContext: string | null = null;
+    if (user.kidProfile) {
+      try {
+        const kp = JSON.parse(user.kidProfile);
+        const parts: string[] = [];
+        if (kp.name) parts.push(`Their name is ${kp.name}.`);
+        if (kp.age) parts.push(`They are ${kp.age} years old.`);
+        if (kp.interests) parts.push(`Interests & hobbies: ${kp.interests}.`);
+        if (kp.favourites) parts.push(`Favourite things: ${kp.favourites}.`);
+        if (kp.notes) parts.push(`Extra info: ${kp.notes}.`);
+        if (parts.length > 0) kidContext = parts.join(" ");
+      } catch { /* ignore bad JSON */ }
+    }
+
     // Generate AI response
     const aiResponse = await chatWithCharacter(
       character.name,
       character.personality || "",
       bookTitle,
       previousMessages,
-      message
+      message,
+      kidContext
     );
-
-    // Detect emotion of the response
-    const emotion = await detectEmotion(aiResponse);
 
     // Determine gender — use stored value or infer it
     let gender: CharacterGender =
@@ -89,21 +102,20 @@ export async function POST(request: Request) {
 
     if (character.gender === "unknown") {
       gender = inferGender(character.name, character.description, character.personality);
-      // Save for next time
-      await prisma.character.update({
+      // Save for next time (fire-and-forget)
+      prisma.character.update({
         where: { id: character.id },
         data: { gender },
-      });
+      }).catch(() => {});
     }
 
-    // Generate audio via Minimax TTS
-    let audioBase64: string | null = null;
-    const audioBuffer = await generateMinimaxVoice(
-      aiResponse,
-      gender,
-      (emotion as EmotionalState) || "neutral"
-    );
+    // Run emotion detection + TTS in parallel for speed
+    const [emotion, audioBuffer] = await Promise.all([
+      detectEmotion(aiResponse),
+      generateMinimaxVoice(aiResponse, gender, "neutral"),
+    ]);
 
+    let audioBase64: string | null = null;
     if (audioBuffer) {
       audioBase64 = Buffer.from(audioBuffer).toString("base64");
     }

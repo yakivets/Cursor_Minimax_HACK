@@ -46,7 +46,7 @@ export default function LibraryPage() {
   const [addingSource, setAddingSource] = useState(false);
   const [addingCharacter, setAddingCharacter] = useState(false);
   const [newSource, setNewSource] = useState({ title: "", author: "", description: "", sourceType: "book" });
-  const [newCharacter, setNewCharacter] = useState({ name: "", sourceTitle: "", sourceType: "cartoon" });
+  const [newCharacter, setNewCharacter] = useState({ name: "", sourceTitle: "", sourceType: "cartoon", description: "" });
 
   const fetchData = useCallback(async () => {
     try {
@@ -103,7 +103,7 @@ export default function LibraryPage() {
         body: JSON.stringify(newCharacter),
       });
       if (res.ok) {
-        setNewCharacter({ name: "", sourceTitle: "", sourceType: "cartoon" });
+        setNewCharacter({ name: "", sourceTitle: "", sourceType: "cartoon", description: "" });
         setShowAddCharacter(false);
         await fetchData();
       }
@@ -121,6 +121,24 @@ export default function LibraryPage() {
       setBooks(books.filter((b) => b.id !== bookId));
     } catch (error) {
       console.error("Failed to delete:", error);
+    }
+  };
+
+  const handleDeleteCharacter = async (charId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Remove this character?")) return;
+    try {
+      await fetch(`/api/characters/${charId}`, { method: "DELETE" });
+      setStandaloneCharacters((prev) => prev.filter((c) => c.id !== charId));
+      setBooks((prev) =>
+        prev.map((b) => ({
+          ...b,
+          characters: b.characters.filter((c) => c.id !== charId),
+          _count: { characters: b.characters.filter((c) => c.id !== charId).length },
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to delete character:", error);
     }
   };
 
@@ -212,6 +230,7 @@ export default function LibraryPage() {
                     <form onSubmit={handleAddCharacter} className="space-y-4">
                       <ScrollInput label="Character Name" placeholder="e.g., Elsa, Simba, Harry Potter..." value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} required />
                       <ScrollInput label="From which story?" placeholder="e.g., Frozen, The Lion King..." value={newCharacter.sourceTitle} onChange={(e) => setNewCharacter({ ...newCharacter, sourceTitle: e.target.value })} required />
+                      <ScrollTextarea label="Description (optional)" placeholder="Describe the character — what they look like, how they talk, what makes them special..." value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} rows={2} />
                       <div className="flex justify-center gap-2">
                         {(["cartoon", "book", "film"] as const).map((t) => (
                           <button key={t} type="button" onClick={() => setNewCharacter({ ...newCharacter, sourceType: t })}
@@ -252,21 +271,24 @@ export default function LibraryPage() {
                       <ParchmentCard hover onClick={() => router.push(`/speak/${char.id}`)}>
                         <div className="p-4 text-center">
                           <div className="w-20 h-20 mx-auto mb-3 rounded-xl overflow-hidden bg-ink-200/20 relative">
-                            {char.videoStatus === "ready" && char.speakingVideoUrl ? (
-                              <video src={char.speakingVideoUrl} muted playsInline loop autoPlay className="w-full h-full object-cover" />
-                            ) : char.videoStatus === "generating" || char.videoStatus === "pending" ? (
+                            {char.illustratedAvatar ? (
+                              <img src={char.illustratedAvatar} alt={char.name} className="w-full h-full object-cover" />
+                            ) : (
                               <div className="w-full h-full flex items-center justify-center bg-ink-100/10">
                                 <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-5 h-5 border-2 border-gold-400 border-t-transparent rounded-full" />
                               </div>
-                            ) : (
-                              <img src={char.illustratedAvatar || "/character-placeholder.png"} alt={char.name} className="w-full h-full object-cover" />
                             )}
                           </div>
                           <h4 className="font-quattro font-bold text-sm text-ink-800">{char.name}</h4>
                           <p className="font-crimson text-xs text-ink-500 italic mt-0.5">{char.sourceTitle}</p>
-                          <OrnateButton variant="primary" size="sm" className="mt-2 w-full" onClick={(e) => { e.stopPropagation(); router.push(`/speak/${char.id}`); }}>
-                            Talk to me!
-                          </OrnateButton>
+                          <div className="mt-2 flex gap-1.5">
+                            <OrnateButton variant="primary" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); router.push(`/speak/${char.id}`); }}>
+                              Talk to me!
+                            </OrnateButton>
+                            <OrnateButton variant="secondary" size="sm" className="bg-gradient-to-b from-leather-500 to-leather-700 text-parchment-100 border-leather-800 hover:from-leather-400 hover:to-leather-600 px-2.5" onClick={(e) => handleDeleteCharacter(char.id, e)}>
+                              ✕
+                            </OrnateButton>
+                          </div>
                         </div>
                       </ParchmentCard>
                     </motion.div>
