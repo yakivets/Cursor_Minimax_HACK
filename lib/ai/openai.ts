@@ -4,34 +4,47 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export async function analyzeBook(title: string, author: string, description?: string) {
+/**
+ * Analyze a book, film, or cartoon and extract characters.
+ * Returns kid-friendly profiles with gender and physical descriptions.
+ */
+export async function analyzeSource(
+  title: string,
+  creator: string,
+  sourceType: string = "book",
+  description?: string
+) {
+  const sourceLabel =
+    sourceType === "cartoon" ? "cartoon/animated film" :
+    sourceType === "film" ? "film" : "book";
+
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {
         role: "system",
-        content: `You are a literary analyst. Analyze the given book and return a JSON response with the following structure:
+        content: `You are a friendly analyst for children's media. Analyze the given ${sourceLabel} and return a JSON response with the following structure:
 {
-  "analysis": "A brief analysis of the book's themes, style, and significance (2-3 sentences)",
+  "analysis": "A short kid-friendly summary (3-4 sentences, simple language)",
   "characters": [
     {
       "name": "Character Name",
-      "description": "Brief physical and role description",
-      "personality": "Key personality traits, speaking style, mannerisms, and emotional tendencies",
+      "description": "Detailed physical appearance description suitable for generating a cartoon-style video/image",
+      "personality": "Kid-friendly personality traits, speaking style, mannerisms (positive and encouraging)",
       "gender": "male or female",
-      "voiceArchetype": "one of: hero, wise, young, dark, charming, gentle"
+      "speakingStyle": "How this character talks - simple description for kids"
     }
   ]
 }
-Extract 2-5 main characters. Be specific about their speaking patterns and emotional characteristics. Return ONLY valid JSON.`,
+Extract 2-5 main characters. Make everything positive and appropriate for children aged 4-12. Return ONLY valid JSON.`,
       },
       {
         role: "user",
-        content: `Book: "${title}" by ${author}${description ? `\nDescription: ${description}` : ""}`,
+        content: `${sourceLabel}: "${title}" by ${creator}${description ? `\nDescription: ${description}` : ""}`,
       },
     ],
     temperature: 0.7,
-    max_tokens: 1500,
+    max_tokens: 2000,
   });
 
   const text = response.choices[0]?.message?.content || "{}";
@@ -43,6 +56,56 @@ Extract 2-5 main characters. Be specific about their speaking patterns and emoti
   }
 }
 
+/** Backward-compatible alias */
+export async function analyzeBook(title: string, author: string, description?: string) {
+  return analyzeSource(title, author, "book", description);
+}
+
+/**
+ * Generate a kid-friendly character profile from just a name and source.
+ * Used for manually-added characters.
+ */
+export async function generateCharacterProfile(
+  name: string,
+  sourceTitle: string,
+  sourceType: string
+) {
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "user",
+        content: `You are helping create a child-friendly character profile.
+
+Character: "${name}" from "${sourceTitle}" (${sourceType})
+
+Generate a kid-friendly character profile with:
+- description: detailed physical appearance for video/image generation
+- personality: key personality traits, positive and fun for kids
+- speakingStyle: how this character talks (simple, encouraging, fun)
+- background: 2-3 sentences about who they are (kid-friendly)
+- gender: "male" or "female"
+
+Make EVERYTHING positive and appropriate for children aged 4-12.
+Return as JSON only, no explanation.`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 800,
+  });
+
+  const text = response.choices[0]?.message?.content || "{}";
+  try {
+    const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return { description: "", personality: "", gender: "unknown", speakingStyle: "", background: "" };
+  }
+}
+
+/**
+ * Chat with a character — kid-safe system prompt.
+ */
 export async function chatWithCharacter(
   characterName: string,
   personality: string,
@@ -55,17 +118,23 @@ export async function chatWithCharacter(
     messages: [
       {
         role: "system",
-        content: `You are ${characterName} from the book "${bookTitle}". Stay completely in character.
+        content: `You are ${characterName} from "${bookTitle}". Stay completely in character.
 
 Character Profile: ${personality}
 
-RULES:
-- Respond as this character would — use their vocabulary, tone, and speech patterns
-- Reference events, relationships, and knowledge from the book naturally
-- Show genuine emotion and personality in every response
-- Keep responses conversational (2-4 sentences for spoken dialogue)
-- Never break character or acknowledge being an AI
-- React emotionally to what the user says, as the character would`,
+CRITICAL RULES FOR THIS CONVERSATION:
+1. You are talking to a CHILD aged 4-12. ALWAYS be kind, encouraging, and positive.
+2. Use SIMPLE words a child can understand. Short sentences.
+3. Be playful, fun, and enthusiastic!
+4. NEVER discuss anything scary, violent, or inappropriate.
+5. If asked something you shouldn't answer, redirect playfully: "Oh, let's talk about something more fun instead!"
+6. Reference your story, your friends, and your adventures naturally.
+7. Always encourage the child — be their biggest cheerleader!
+8. Keep responses SHORT (2-4 sentences max) — kids have short attention spans.
+9. End responses with a question or invitation to keep the child engaged.
+10. Never break character or acknowledge being an AI.
+
+You ARE this character. Stay in character always. Be magical and fun!`,
       },
       ...messages.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -98,39 +167,4 @@ export async function detectEmotion(text: string): Promise<string> {
   const emotion = response.choices[0]?.message?.content?.trim().toLowerCase() || "neutral";
   const validEmotions = ["neutral", "happy", "sad", "angry", "thoughtful", "excited", "worried"];
   return validEmotions.includes(emotion) ? emotion : "neutral";
-}
-
-/**
- * Generate a 2D character portrait using DALL·E 2 from name, description, personality and book.
- * Returns a data URL (data:image/png;base64,...) or null if generation fails or API is not configured.
- */
-export async function generateCharacterPortrait(
-  name: string,
-  bookTitle: string,
-  description?: string | null,
-  personality?: string | null
-): Promise<string | null> {
-  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith("sk-your")) {
-    return null;
-  }
-
-  const prompt = `A single character portrait, head and shoulders, literary illustration style, suitable for a book character. Character: ${name} from the book "${bookTitle}".${description ? ` ${description}` : ""}${personality ? ` Personality and vibe: ${personality.slice(0, 200)}` : ""}. Warm, readable, no text, portrait orientation, centered face.`;
-
-  try {
-    const response = await openai.images.generate({
-      model: "dall-e-2",
-      prompt,
-      size: "256x256",
-      n: 1,
-      response_format: "b64_json",
-    });
-
-    const b64 = response.data?.[0];
-    if (!b64 || !("b64_json" in b64) || !b64.b64_json) return null;
-
-    return `data:image/png;base64,${b64.b64_json}`;
-  } catch (err) {
-    console.error("Character portrait generation failed:", err);
-    return null;
-  }
 }

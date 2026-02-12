@@ -13,6 +13,7 @@ model User {
   email         String         @unique
   password      String
   image         String?
+  parentPin     String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   books         Book[]
@@ -27,6 +28,7 @@ model Book {
   description String?
   genre       String?
   analysis    String?
+  sourceType  String      @default("book")
   userId      String
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   characters  Character[]
@@ -35,19 +37,26 @@ model Book {
 }
 
 model Character {
-  id               String         @id @default(cuid())
-  name             String
-  description      String?
-  personality      String?
+  id                String         @id @default(cuid())
+  name              String
+  description       String?
+  personality       String?
   illustratedAvatar String?
-  voiceId          String?
-  voiceSettings    String?
-  minimaxVideos    String?
-  bookId           String
-  book             Book           @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  conversations    Conversation[]
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  voiceId           String?
+  voiceSettings     String?
+  minimaxVideos     String?
+  gender            String         @default("unknown")
+  speakingVideoUrl  String?
+  videoStatus       String         @default("pending")
+  videoGeneratedAt  DateTime?
+  sourceType        String         @default("book")
+  sourceTitle       String?
+  isStandalone      Boolean        @default(false)
+  bookId            String?
+  book              Book?          @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 }
 
 model Conversation {
@@ -58,6 +67,8 @@ model Conversation {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
   messages    Message[]
+  endedAt     DateTime?
+  durationSecs Int?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }

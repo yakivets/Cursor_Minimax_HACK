@@ -3,11 +3,11 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Lore Echo — Converse with Literary Legends",
+  title: "Story Pals — Talk to Your Favourite Story Friends!",
   description:
-    "An immersive storytelling platform where readers have voice conversations with AI-powered book characters in a beautiful storybook-inspired interface.",
+    "Chat with characters from your favourite books, films, and cartoons. They talk back with their own voices!",
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>",
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌟</text></svg>",
   },
 };
 

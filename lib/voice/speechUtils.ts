@@ -77,11 +77,15 @@ export class AudioPlayer {
       this.currentSource.connect(this.audioContext.destination);
 
       this.isPlaying = true;
-      this.currentSource.onended = () => {
-        this.isPlaying = false;
-      };
 
-      this.currentSource.start(0);
+      // Return a promise that resolves when the audio finishes playing
+      return new Promise<void>((resolve) => {
+        this.currentSource!.onended = () => {
+          this.isPlaying = false;
+          resolve();
+        };
+        this.currentSource!.start(0);
+      });
     } catch (error) {
       console.error("Audio playback error:", error);
       this.isPlaying = false;

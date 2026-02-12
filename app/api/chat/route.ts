@@ -1,34 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { chatWithCharacter, detectEmotion } from "@/lib/ai/openai";
-import { generateSpeech, pickVoiceForCharacter } from "@/lib/ai/elevenlabs";
+import {
+  generateMinimaxVoice,
+  inferGender,
+  type CharacterGender,
+  type EmotionalState,
+} from "@/lib/ai/minimax-voice";
 import { getAnonymousUserId } from "@/lib/anonymousUser";
-
-/**
- * Infer gender and archetype from character info to auto-select a voice.
- */
-function autoPickVoice(name: string, description: string | null, personality: string | null): string {
-  const text = `${name} ${description || ""} ${personality || ""}`.toLowerCase();
-
-  // Detect gender from textual cues
-  const femaleSignals = ["she", "her ", "woman", "lady", "girl", "daughter", "mother", "wife", "queen", "princess", "miss", "mrs", "madam", "heroine", "female", "sister", "aunt", "niece"];
-  const maleSignals = ["he ", "his ", "him ", "man", "gentleman", "boy", "son", "father", "husband", "king", "prince", "mr.", "sir", "lord", "hero", "male", "brother", "uncle", "nephew"];
-
-  const femaleScore = femaleSignals.filter(s => text.includes(s)).length;
-  const maleScore = maleSignals.filter(s => text.includes(s)).length;
-  const gender: "male" | "female" = femaleScore > maleScore ? "female" : "male";
-
-  // Detect archetype
-  let archetype = "default";
-  if (/wise|old|sage|mentor|elder|professor|scholar|bookish|father/.test(text)) archetype = "wise";
-  else if (/young|child|boy|girl|innocent|youthful|bright|student/.test(text)) archetype = "young";
-  else if (/dark|brooding|villain|sinister|mysterious|haunted|intense|melanchol/.test(text)) archetype = "dark";
-  else if (/charm|suave|smooth|elegant|refined|witty|gallant|dashing/.test(text)) archetype = "charming";
-  else if (/gentle|soft|kind|tender|sweet|delicate|fragile|quiet/.test(text)) archetype = "gentle";
-  else archetype = "hero";
-
-  return pickVoiceForCharacter(gender, archetype);
-}
 
 export async function POST(request: Request) {
   try {
@@ -54,6 +33,8 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+
+    const bookTitle = character.book?.title || character.sourceTitle || "Unknown";
 
     // Get or create conversation
     let conversation;
@@ -94,7 +75,7 @@ export async function POST(request: Request) {
     const aiResponse = await chatWithCharacter(
       character.name,
       character.personality || "",
-      character.book.title,
+      bookTitle,
       previousMessages,
       message
     );
@@ -102,27 +83,25 @@ export async function POST(request: Request) {
     // Detect emotion of the response
     const emotion = await detectEmotion(aiResponse);
 
-    // Generate audio if ElevenLabs is configured
-    let audioBase64: string | null = null;
-    const voiceSettings = character.voiceSettings
-      ? JSON.parse(character.voiceSettings)
-      : undefined;
+    // Determine gender — use stored value or infer it
+    let gender: CharacterGender =
+      character.gender === "female" ? "female" : "male";
 
-    // Auto-pick a voice if character doesn't have one assigned yet
-    let voiceId = character.voiceId;
-    if (!voiceId) {
-      voiceId = autoPickVoice(character.name, character.description, character.personality);
-      // Save it so we use the same voice next time
+    if (character.gender === "unknown") {
+      gender = inferGender(character.name, character.description, character.personality);
+      // Save for next time
       await prisma.character.update({
         where: { id: character.id },
-        data: { voiceId },
+        data: { gender },
       });
     }
 
-    const audioBuffer = await generateSpeech(
+    // Generate audio via Minimax TTS
+    let audioBase64: string | null = null;
+    const audioBuffer = await generateMinimaxVoice(
       aiResponse,
-      voiceId,
-      voiceSettings
+      gender,
+      (emotion as EmotionalState) || "neutral"
     );
 
     if (audioBuffer) {

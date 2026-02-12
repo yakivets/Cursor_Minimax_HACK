@@ -99,9 +99,9 @@ export default function BookPage() {
           </Link>
 
           <h1 className="font-cinzel font-bold text-xl tracking-wider">
-            <span className="gold-shimmer">LORE</span>
+            <span className="gold-shimmer">STORY</span>
             <span className="text-parchment-400 mx-1">·</span>
-            <span className="text-parchment-300">ECHO</span>
+            <span className="text-parchment-300">PALS</span>
           </h1>
         </div>
       </nav>
@@ -153,13 +153,13 @@ export default function BookPage() {
         {/* Characters Section */}
         <div className="mt-10">
           <h2 className="font-cinzel font-bold text-2xl text-parchment-200 text-center mb-8">
-            Characters Within
+            Friends in This Story
           </h2>
 
           {book.characters.length === 0 ? (
             <div className="text-center py-12">
               <p className="font-crimson text-parchment-500 italic">
-                No characters have emerged from this book yet...
+                No friends found in this story yet...
               </p>
             </div>
           ) : (
@@ -210,7 +210,7 @@ export default function BookPage() {
                           className="w-full"
                           onClick={() => router.push(`/speak/${character.id}`)}
                         >
-                          🗣️ Speak with {character.name.split(" ")[0]}
+                          🗣️ Talk to {character.name.split(" ")[0]}!
                         </OrnateButton>
                       </div>
                     </div>
